@@ -2,7 +2,7 @@
 
 Overview
 --------
-transfer_learning is a keras-based transfer learning module for arbitrary end-to-end image classification. The module supports transfer learning that is based on any of the following pre-trained models
+transfer_learning is a [keras](https://keras.io/)-based transfer learning module for arbitrary end-to-end image classification. The module supports transfer learning that is based on any of the following pre-trained models
 
 - [Xception](https://keras.io/applications/#xception)
 - [VGG16](https://keras.io/applications/#vgg16)
