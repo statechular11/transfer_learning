@@ -43,3 +43,8 @@ Usuage
 ```
 python transfer_learning.py -m resnet50
 ```
+
+
+Contact
+-------
+If you have any questions or encounter any bugs, please contact the author (Feiyang Niu, Feiyang.Niu@gilead.com)
