@@ -14,11 +14,11 @@ Overview
 Transfer learning takes place through the following two steps
 
 - Quick learning via a top model
-    A top model is a pre-trained model with last block of fully connected layers being re-trained to accommodate a specific classification task.
+    + A top model is a pre-trained model with last block of fully connected layers being re-trained to accommodate a specific classification task.
 - Fine tuning of unfreezed layers
-    Fine tuning begins by initializing its weights to those of a top model trained in first step and re-trains those unfreezed layers, typically the final fully connected layer block + its previous adjacent convolutional layer block.
+    + Fine tuning begins by initializing its weights to those of a top model trained in first step and re-trains those unfreezed layers, typically the final fully connected layer block + its previous adjacent convolutional layer block.
     
-Please refer to Francois Chollet excellent [tutorial](https://blog.keras.io/building-powerful-image-classification-models-using-very-little-data.html) for the details of a top model and fine tuning process.
+Please refer to Francois Chollet's excellent [tutorial](https://blog.keras.io/building-powerful-image-classification-models-using-very-little-data.html) for the details of a top model and fine tuning process.
 
 Setup
 -----
