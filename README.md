@@ -15,6 +15,7 @@ Setup
 -----
 Download all the Python files of the module into the project folder. In order for the module to correctly find the data, the following folder structure is required to store the data
 
+```
 project_dir/
     data/
         train/
@@ -35,6 +36,7 @@ project_dir/
             ...
         test/
             ...
+```
 
 Usuage
 ------
