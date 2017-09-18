@@ -49,7 +49,7 @@ project_dir/
 
 Usuage
 ------
-```
+```shell
 python transfer_learning.py -m resnet50
 ```
 
