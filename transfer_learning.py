@@ -1,9 +1,9 @@
 import os
+import argparse
 import config
 import utils
 import data
 import models
-import argparse
 
 
 def transfer_learning(base_model=None,
@@ -11,9 +11,9 @@ def transfer_learning(base_model=None,
                       freeze_layers_num=None,
                       classes=None,
                       epochs_top_model=250,
-                      epochs_fine_tuned=250,
+                      epochs_transfer_model=250,
                       lr_top_model=1e-3,
-                      lr_fine_tuned=1e-4,
+                      lr_transfer_model=1e-4,
                       project_path=None):
     if project_path is None:
         project_path = config.abspath
@@ -22,37 +22,34 @@ def transfer_learning(base_model=None,
     utils.create_dir(config.trained_dir)
     utils.create_dir(config.precomputed_dir)
     config.get_top_model_weights_path(base_model)
-    config.get_fine_tuned_weights_path(base_model)
+    config.get_transfer_model_weights_path(base_model)
     config.get_top_model_path(base_model)
-    config.get_fine_tuned_path(base_model)
+    config.get_transfer_model_path(base_model)
     if base_model is None:
         base_model = config.model
-    assert base_model in [
-        'inception_v3', 'mobilenet', 'resnet50',
-        'vgg16', 'vgg19', 'xception'
-    ]
+    assert utils.is_keras_pretrained_model(base_model)
     if classes is not None:
         classes = config.classes
     print('Started extracting bottleneck features for train data')
-    x_train = data.extract_bottleneck_features_train(
+    x_train = data.get_bottleneck_features_from_path_train(
         model=base_model,
         classes=classes,
         save=False,
         verbose=True)
     print('Finished extracting bottleneck features for train data')
-    y_train = data.extract_classes_from_path_train(
+    y_train = data.get_y_from_path_train(
         classes=classes,
         shuffle=False,
         save=False,
         verbose=True)
     print('Started extracting bottleneck features for valid data')
-    x_valid = data.extract_bottleneck_features_valid(
+    x_valid = data.get_bottleneck_features_from_path_valid(
         model=base_model,
         classes=classes,
         save=False,
         verbose=True)
     print('Finished extracting bottleneck features for valid data')
-    y_valid = data.extract_classes_from_path_valid(
+    y_valid = data.get_y_from_path_valid(
         classes=classes,
         shuffle=False,
         save=False,
@@ -70,7 +67,9 @@ def transfer_learning(base_model=None,
         base_model=base_model,
         fc_layer_size=fc_layer_size)
     transfer_model.load_weights_from_top_model()
-    transfer_model.fit_generator(epochs=epochs_fine_tuned, lr=lr_fine_tuned)
+    transfer_model.fit_generator(
+        epochs=epochs_transfer_model,
+        lr=lr_transfer_model)
     return transfer_model
 
 
@@ -80,9 +79,9 @@ def parse_args():
                         type=str,
                         required=False,
                         help=('Base model architecture'),
-                        default='resnet50',
+                        default=config.model,
                         choices=['inception_v3', 'mobilenet', 'resnet50',
-                                 'vgg16', 'vgg19', 'xception'])
+                                 'resnet152', 'vgg16', 'vgg19', 'xception'])
     parser.add_argument('--fc_layer_size',
                         type=int,
                         required=False,
@@ -97,7 +96,7 @@ def parse_args():
                         type=int,
                         required=False,
                         help=('Number of epochs for training top model'))
-    parser.add_argument('--epochs_fine_tuned',
+    parser.add_argument('--epochs_transfer_model',
                         type=int,
                         required=False,
                         help=('Number of epochs for fine tuning'))
@@ -106,7 +105,7 @@ def parse_args():
                         required=False,
                         help=('Learning rate for training top model'),
                         default=0.001)
-    parser.add_argument('--lr_fine_tuned',
+    parser.add_argument('--lr_transfer_model',
                         type=float,
                         required=False,
                         help=('Learning rate for fine tuning'),
@@ -126,7 +125,7 @@ if __name__ == '__main__':
                       freeze_layers_num=args.freeze_layers_num,
                       classes=None,
                       epochs_top_model=args.epochs_top_model,
-                      epochs_fine_tuned=args.epochs_fine_tuned,
+                      epochs_transfer_model=args.epochs_transfer_model,
                       lr_top_model=args.lr_top_model,
-                      lr_fine_tuned=args.lr_fine_tuned,
+                      lr_transfer_model=args.lr_transfer_model,
                       project_path=args.project_path)

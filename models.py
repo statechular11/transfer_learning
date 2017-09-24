@@ -1,12 +1,9 @@
 import os
+import numpy as np
 import config
 import utils
 import data
-import h5py
-import numpy as np
-from keras.preprocessing.image import (
-    ImageDataGenerator, load_img, img_to_array
-)
+from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Model, Sequential
 from keras.layers import Dense, Flatten, Dropout
 from keras.optimizers import SGD
@@ -20,13 +17,10 @@ class TransferModel(object):
                  classes=None,
                  freeze_layers_num=None):
         if not base_model:
-            base_model = 'resnet50'
-        assert base_model in [
-            'inception_v3', 'mobilenet', 'resnet50',
-            'vgg16', 'vgg19', 'xception'
-        ]
+            base_model = config.model
+        assert utils.is_keras_pretrained_model(base_model)
         self.base_model = base_model
-        self.input_shape = config.get_input_shape(self.base_model)
+        self.input_shape = utils.get_input_shape(self.base_model)
         self.fc_layer_size = fc_layer_size
         if classes is None:
             classes = config.classes
@@ -36,14 +30,14 @@ class TransferModel(object):
         if freeze_layers_num is None:
             freeze_layers_num = 80
         self.freeze_layers_num = freeze_layers_num
-        self.model_weights_path = config.get_fine_tuned_weights_path(
+        self.model_weights_path = config.get_transfer_model_weights_path(
             base_model)
-        self.model_path = config.get_fine_tuned_path(base_model)
+        self.model_path = config.get_transfer_model_path(base_model)
         self.preprocess_fun = data.preprocess_input_wrapper(self.base_model)
         self._create()
 
     def _create(self):
-        model = config.get_pretrained_model(
+        model = utils.get_pretrained_model(
             self.base_model,
             include_top=False,
             input_shape=self.input_shape)
@@ -67,32 +61,20 @@ class TransferModel(object):
             **kwargs):
         self.freeze_top_layers(self.model, self.freeze_layers_num)
         if x is None:
-            x_train_path = os.path.join(
-                config.precomputed_dir,
-                'x_train_{}.h5'.format(self.base_model))
-            with h5py.File(x_train_path, 'r') as hf:
-                x = hf['data'][:]
+            x_train_path = config.get_x_train_path(self.base_model)
+            x = utils.load_h5file(x_train_path)
         if y is None:
-            y_train_path = os.path.join(
-                config.precomputed_dir,
-                'targets_train_{}.h5'.format(self.base_model))
-            with h5py.File(y_train_path, 'r') as hf:
-                y = hf['data'][:]
+            y_train_path = config.y_train_path
+            y = utils.load_h5file(y_train_path)
         if callbacks is None:
             callbacks = self.get_callbacks(
                 self.model_weights_path,
                 patience=30)
         if validation_data is None:
-            x_valid_path = os.path.join(
-                config.precomputed_dir,
-                'x_valid_{}.h5'.format(self.base_model))
-            with h5py.File(x_valid_path, 'r') as hf:
-                x_valid = hf['data'][:]
-            y_valid_path = os.path.join(
-                config.precomputed_dir,
-                'targets_valid_{}.h5'.format(self.base_model))
-            with h5py.File(y_valid_path, 'r') as hf:
-                y_valid = hf['data'][:]
+            x_valid_path = config.get_x_valid_path(self.base_model)
+            x_valid = utils.load_h5file(x_valid_path)
+            y_valid_path = config.y_valid_path
+            y_valid = utils.load_h5file(y_valid_path)
             validation_data = (x_valid, y_valid)
         self.model.compile(
             loss='categorical_crossentropy',
@@ -117,12 +99,11 @@ class TransferModel(object):
                       validation_steps=None,
                       lr=1e-4,
                       batch_size=32,
+                      source='path',
                       **kwargs):
         self.freeze_top_layers(self.model, self.freeze_layers_num)
+        assert source in {'path', 'tensor'}
         if generator is None:
-            n_train = len(utils.images_under_subdirs(
-                config.train_dir,
-                subdirs=self.classes))
             datagen_train = ImageDataGenerator(
                 preprocessing_function=self.preprocess_fun,
                 rotation_range=30.,
@@ -131,8 +112,23 @@ class TransferModel(object):
                 shear_range=0.2,
                 zoom_range=0.2,
                 horizontal_flip=True)
-            generator = datagen_train.flow_from_directory(
-                config.train_dir, target_size=self.image_size)
+            x_train_path = config.get_x_train_path(self.base_model)
+            y_train_path = config.y_train_path
+            if (source == 'tensor' and
+                    os.path.exists(x_train_path) and
+                    os.path.exists(y_train_path)):
+                x_train = utils.load_h5file(x_train_path)
+                y_train = utils.load_h5file(y_train_path)
+                generator = datagen_train.flow(x_train, y_train, batch_size)
+                n_train = len(x_train)
+            else:
+                generator = datagen_train.flow_from_directory(
+                    config.train_dir,
+                    target_size=self.image_size,
+                    batch_size=batch_size)
+                n_train = len(utils.images_under_subdirs(
+                    config.train_dir,
+                    subdirs=self.classes))
             if not steps_per_epoch:
                 steps_per_epoch = utils.ceildiv(n_train, batch_size)
         if steps_per_epoch is None:
@@ -142,13 +138,26 @@ class TransferModel(object):
                 self.model_weights_path,
                 patience=50)
         if validation_data is None:
-            n_valid = len(utils.images_under_subdirs(
-                config.valid_dir,
-                subdirs=self.classes))
             datagen_valid = ImageDataGenerator(
                 preprocessing_function=self.preprocess_fun)
-            validation_data = datagen_valid.flow_from_directory(
-                config.valid_dir, target_size=self.image_size)
+            x_valid_path = config.get_x_valid_path(self.base_model)
+            y_valid_path = config.y_valid_path
+            if (source == 'tensor' and
+                    os.path.exists(x_valid_path) and
+                    os.path.exists(y_valid_path)):
+                x_valid = utils.load_h5file(x_valid_path)
+                y_valid = utils.load_h5file(y_valid_path)
+                validation_data = datagen_valid.flow(
+                    x_valid, y_valid, batch_size)
+                n_valid = len(x_valid)
+            else:
+                validation_data = datagen_valid.flow_from_directory(
+                    config.valid_dir,
+                    target_size=self.image_size,
+                    batch_size=batch_size)
+                n_valid = len(utils.images_under_subdirs(
+                    config.valid_dir,
+                    subdirs=self.classes))
             if not validation_steps:
                 validation_steps = utils.ceildiv(n_valid, batch_size)
         if validation_steps is None:
@@ -173,20 +182,16 @@ class TransferModel(object):
     def predict(self, *args, **kwargs):
         return self.model.predict(*args, **kwargs)
 
-    def predict_from_path(self, filepath):
-        img = load_img(filepath, target_size=self.image_size)
-        tensor = img_to_array(img)
-        tensor = np.expand_dims(tensor, axis=0)
+    def predict_from_path(self, image_path):
+        tensor = data.path_to_tensor(image_path, target_size=self.target_size)
         tensor = self.preprocess_fun(tensor)
         pred = self.predict(tensor)
-        idx = np.argmax(pred, axis=1)
-        label = self.classes[idx]
-        return label
+        return pred
 
     def predict_from_url(self, url):
-        filepath = utils.url2file(url)
-        label = self.predict_from_path(filepath)
-        return label
+        image_path = utils.url2file(url)
+        pred = self.predict_from_path(image_path)
+        return pred
 
     def save_model(self):
         self.model.save(self.model_path)
@@ -200,7 +205,7 @@ class TransferModel(object):
         if top_model_weights_path is None:
             top_model_weights_path = config.get_top_model_weights_path(
                 self.base_model)
-        pretrained_model = config.get_pretrained_model(
+        pretrained_model = utils.get_pretrained_model(
             self.base_model,
             include_top=False,
             input_shape=self.input_shape)
@@ -231,7 +236,7 @@ class TransferModel(object):
     @staticmethod
     def get_callbacks(weights_path,
                       monitor='val_loss',
-                      patience=30,
+                      patience=40,
                       patience_lr=20):
         early_stopping = EarlyStopping(
             verbose=1,
@@ -255,6 +260,8 @@ class TopModel(object):
         - 'inception_v3',
         - 'mobilenet',
         - 'resnet50',
+        - 'resnet101',
+        - 'resnet152',
         - 'vgg16',
         - 'vgg19',
         - 'xception'
@@ -265,11 +272,8 @@ class TopModel(object):
                  classes=None):
         self.fc_layer_size = fc_layer_size
         if not base_model:
-            base_model = 'resnet50'
-        assert base_model in [
-            'inception_v3', 'mobilenet', 'resnet50',
-            'vgg16', 'vgg19', 'xception'
-        ]
+            base_model = config.model
+        assert utils.is_keras_pretrained_model(base_model)
         self.base_model = base_model
         if classes is None:
             classes = config.classes
@@ -282,10 +286,10 @@ class TopModel(object):
         self._create()
 
     def _create(self):
-        pretrained_model = config.get_pretrained_model(
+        pretrained_model = utils.get_pretrained_model(
             self.base_model,
             include_top=False,
-            input_shape=config.get_input_shape(self.base_model))
+            input_shape=utils.get_input_shape(self.base_model))
         self.pretrained_model = pretrained_model
         input_shape = [int(ele) for ele in pretrained_model.output.shape[1:]]
         model = Sequential()
@@ -307,32 +311,20 @@ class TopModel(object):
             lr=1e-3,
             **kwargs):
         if x is None:
-            x_train_path = os.path.join(
-                config.precomputed_dir,
-                'bottleneck_features_train_{}.h5'.format(self.base_model))
-            with h5py.File(x_train_path, 'r') as hf:
-                x = hf['data'][:]
+            x_train_path = config.get_bf_train_path(self.base_model)
+            x = utils.load_h5file(x_train_path)
         if y is None:
-            y_train_path = os.path.join(
-                config.precomputed_dir,
-                'targets_train_{}.h5'.format(self.base_model))
-            with h5py.File(y_train_path, 'r') as hf:
-                y = hf['data'][:]
+            y_train_path = config.y_train_path
+            y = utils.load_h5file(y_train_path)
         if callbacks is None:
             callbacks = self.get_callbacks(
                 self.model_weights_path,
                 patience=30)
         if validation_data is None:
-            x_valid_path = os.path.join(
-                config.precomputed_dir,
-                'bottleneck_features_valid_{}.h5'.format(self.base_model))
-            with h5py.File(x_valid_path, 'r') as hf:
-                x_valid = hf['data'][:]
-            y_valid_path = os.path.join(
-                config.precomputed_dir,
-                'targets_valid_{}.h5'.format(self.base_model))
-            with h5py.File(y_valid_path, 'r') as hf:
-                y_valid = hf['data'][:]
+            x_valid_path = config.get_bf_valid_path(self.base_model)
+            x_valid = utils.load_h5file(x_valid_path)
+            y_valid_path = config.y_valid_path
+            y_valid = utils.load_h5file(y_valid_path)
             validation_data = (x_valid, y_valid)
         self.model.compile(
             loss='categorical_crossentropy',
@@ -361,21 +353,17 @@ class TopModel(object):
             weights_path = self.model_weights_path
         self.model.load_weights(weights_path)
 
-    def predict_from_path(self, filepath):
-        img = load_img(filepath, target_size=self.image_size)
-        tensor = img_to_array(img)
-        tensor = np.expand_dims(tensor, axis=0)
+    def predict_from_path(self, image_path):
+        tensor = data.path_to_tensor(image_path, target_size=self.target_size)
         tensor = self.preprocess_fun(tensor)
         bf = self.pretrained_model.predict(tensor)
         pred = self.predict(bf)
-        idx = np.argmax(pred, axis=1)
-        label = self.classes[idx]
-        return label
+        return pred
 
     def predict_from_url(self, url):
-        filepath = utils.url2file(url)
-        label = self.predict_from_path(filepath)
-        return label
+        image_path = utils.url2file(url)
+        pred = self.predict_from_path(image_path)
+        return pred
 
     @staticmethod
     def get_callbacks(weights_path,
